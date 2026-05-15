@@ -4,3 +4,10 @@
 .env
 
 __pycache__
+
+# Credentials
+credentials.json
+token.json
+
+# Databases
+*.db

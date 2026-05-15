@@ -35,7 +35,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * `main.py`: **[TODO]** Entry point for the application, runs discord bot and gmail polling loop in background.
 * `llm.py`: **[Complete]** Wrapper for Gemini API.
 * `db.py`: **[Complete]** SQLite schema for email tracking (`inbox.db`) and few-shot user corrections.
-* `gmail.py`: **[TODO]** Requires implementation of OAuth2 flow and message parsing.
+* `gmail.py`: **[Complete]** Implements OAuth2 flow, message parsing, label manipulation, and drafting.
 * `.env`:  Contains API keys and Discord IDs.
 
 ---
@@ -51,7 +51,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Maintain a list of user corrections for email sorting (few-shot learning)
 * Wrap all database operations
 
-### 2. Gmail API Implementation (`gmail.py`)
+### 2. Gmail API Implementation (`gmail.py`) [Complete]
 
 * Implement OAuth2 flow
 * Get all emails in inbox

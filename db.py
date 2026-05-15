@@ -21,9 +21,19 @@ class Database:
                     status TEXT NOT NULL,
                     subject TEXT,
                     body TEXT,
+                    sender TEXT,
+                    recipient TEXT,
+                    cc TEXT,
                     added_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            
+            # Migrations for existing databases
+            for col in ['sender', 'recipient', 'cc']:
+                try:
+                    cursor.execute(f'ALTER TABLE emails ADD COLUMN {col} TEXT')
+                except sqlite3.OperationalError:
+                    pass
             
             # Table for few-shot learning corrections
             cursor.execute('''
@@ -39,19 +49,22 @@ class Database:
             
             conn.commit()
 
-    def add_or_update_email(self, message_id: str, status: str, subject: str = "", body: str = ""):
+    def add_or_update_email(self, message_id: str, status: str, subject: str = "", body: str = "", sender: str = "", recipient: str = "", cc: str = ""):
         """Adds a new email to track or updates its status if it already exists."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO emails (message_id, status, subject, body, added_at)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO emails (message_id, status, subject, body, sender, recipient, cc, added_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(message_id) DO UPDATE SET
                     status=excluded.status,
                     subject=excluded.subject,
                     body=excluded.body,
+                    sender=excluded.sender,
+                    recipient=excluded.recipient,
+                    cc=excluded.cc,
                     added_at=CURRENT_TIMESTAMP
-            ''', (message_id, status, subject, body))
+            ''', (message_id, status, subject, body, sender, recipient, cc))
             conn.commit()
 
     def update_email_status(self, message_id: str, status: str):
@@ -125,7 +138,7 @@ if __name__ == "__main__":
     print(f"Initialized database at {test_db_path}")
     
     # Test adding an email
-    db.add_or_update_email("msg_123", "suggested_routine", "Newsletter", "Here is your weekly news...")
+    db.add_or_update_email("msg_123", "suggested_routine", "Newsletter", "Here is your weekly news...", "sender@test.com", "me@test.com", "")
     print(f"Added email. Query: {db.get_email('msg_123')}")
     
     # Test updating status
@@ -133,7 +146,7 @@ if __name__ == "__main__":
     print(f"Updated status. Query: {db.get_email('msg_123')}")
     
     # Test querying by status
-    db.add_or_update_email("msg_456", "suggested_routine", "Spam", "Buy this product!")
+    db.add_or_update_email("msg_456", "suggested_routine", "Spam", "Buy this product!", "spammer@spam.com", "me@test.com", "")
     emails = db.get_emails_by_status("suggested_routine")
     print(f"Emails with 'suggested_routine' status: {[e['message_id'] for e in emails]}")
     

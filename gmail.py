@@ -85,11 +85,17 @@ class GmailClient:
             headers = payload.get('headers', [])
             
             subject = self._get_header(headers, 'Subject')
+            sender = self._get_header(headers, 'From')
+            recipient = self._get_header(headers, 'To')
+            cc = self._get_header(headers, 'Cc')
             body = self._extract_body(payload)
             
             email_data.append({
                 'message_id': msg_id,
                 'subject': subject,
+                'sender': sender,
+                'recipient': recipient,
+                'cc': cc,
                 'body': body
             })
             
@@ -160,6 +166,7 @@ if __name__ == "__main__":
             clean_body = email['body'].replace('\r', '').replace('\n', ' ') if email['body'] else ""
             body_snippet = clean_body[:100] + "..." if clean_body else "[No plain text body found]"
             print(f"{i}. ID: {email['message_id']}")
+            print(f"   From: {email['sender']}")
             print(f"   Subject: {email['subject']}")
             print(f"   Snippet: {body_snippet}\n")
             

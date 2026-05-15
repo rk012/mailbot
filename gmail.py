@@ -1,5 +1,6 @@
 import os
 import base64
+import time
 from typing import List, Dict
 from email.message import EmailMessage
 
@@ -7,9 +8,32 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+
+def retry_on_error(max_retries=3, base_delay=1):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            retries = 0
+            while True:
+                try:
+                    return func(*args, **kwargs)
+                except HttpError as e:
+                    if e.resp.status in [429, 500, 503] and retries < max_retries:
+                        time.sleep(base_delay * (2 ** retries))
+                        retries += 1
+                    else:
+                        raise e
+                except Exception as e:
+                    if retries < max_retries:
+                        time.sleep(base_delay * (2 ** retries))
+                        retries += 1
+                    else:
+                        raise e
+        return wrapper
+    return decorator
 
 
 class GmailClient:
@@ -71,9 +95,13 @@ class GmailClient:
                 return base64.urlsafe_b64decode(data).decode('utf-8')
         return ""
 
-    def get_inbox_emails(self, limit: int = 50) -> List[Dict]:
+    @retry_on_error()
+    def get_inbox_emails(self, limit: int = 50, unread_only: bool = True) -> List[Dict]:
         """Fetches recent emails from the inbox."""
-        results = self.service.users().messages().list(userId='me', labelIds=['INBOX'], maxResults=limit).execute()
+        label_ids = ['INBOX']
+        if unread_only:
+            label_ids.append('UNREAD')
+        results = self.service.users().messages().list(userId='me', labelIds=label_ids, maxResults=limit).execute()
         messages = results.get('messages', [])
         
         email_data = []
@@ -101,6 +129,7 @@ class GmailClient:
             
         return email_data
 
+    @retry_on_error()
     def modify_email_state(self, message_id: str, action: str):
         """Modifies the labels of a specific email."""
         action = action.lower()
@@ -117,6 +146,7 @@ class GmailClient:
             
         self.service.users().messages().modify(userId='me', id=message_id, body=body_payload).execute()
 
+    @retry_on_error()
     def create_draft_reply(self, message_id: str, draft_text: str):
         """Creates a perfectly threaded draft reply to a given email."""
         # Fetch the original email to get threading headers

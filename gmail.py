@@ -157,7 +157,8 @@ if __name__ == "__main__":
         emails = client.get_inbox_emails(limit=3)
         for i, email in enumerate(emails, 1):
             # Print subject and a snippet of the body to verify parsing works
-            body_snippet = email['body'][:100].replace('\n', ' ') + "..." if email['body'] else "[No plain text body found]"
+            clean_body = email['body'].replace('\r', '').replace('\n', ' ') if email['body'] else ""
+            body_snippet = clean_body[:100] + "..." if clean_body else "[No plain text body found]"
             print(f"{i}. ID: {email['message_id']}")
             print(f"   Subject: {email['subject']}")
             print(f"   Snippet: {body_snippet}\n")

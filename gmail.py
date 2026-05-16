@@ -2,6 +2,7 @@ import os
 import base64
 import time
 from typing import List, Dict
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -146,6 +147,13 @@ class GmailClient:
             recipient = self._get_header(headers, 'To')
             cc = self._get_header(headers, 'Cc')
             body = self._extract_body(payload)
+            internal_date = None
+            internal_date_ms = full_msg.get('internalDate')
+            if internal_date_ms:
+                internal_date = datetime.fromtimestamp(
+                    int(internal_date_ms) / 1000,
+                    tz=timezone.utc,
+                )
             
             email_data.append({
                 'message_id': msg_id,
@@ -154,7 +162,9 @@ class GmailClient:
                 'sender': sender,
                 'recipient': recipient,
                 'cc': cc,
-                'body': body
+                'body': body,
+                'internal_date': internal_date,
+                'label_ids': full_msg.get('labelIds', []),
             })
             
         return email_data

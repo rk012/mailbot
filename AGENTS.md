@@ -29,13 +29,17 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * **Email:** `google-api-python-client` (Gmail API v1)
 * **Database:** `sqlite3`
 
+## Project Maintenance
+
+* Update this `AGENTS.md` file whenever a feature is implemented or materially changed, so future agents can trust the project state and task list.
+
 ## Project Structure & State
 
-* `bot.py`: **[Complete]** Main event loop and Discord UI components.
+* `bot.py`: **[Complete]** Main event loop, timestamp-based inbox refresh, Discord UI components, routine sync summaries, and routine correction slash command.
 * `main.py`: **[Complete]** Entry point for the application, runs discord bot and gmail polling loop in background.
 * `llm.py`: **[Complete]** Wrapper for Gemini API.
 * `db.py`: **[Complete]** SQLite schema for email tracking (`inbox.db`) and few-shot user corrections.
-* `gmail.py`: **[Complete]** Implements OAuth2 flow, message parsing, label manipulation, and drafting.
+* `gmail.py`: **[Complete]** Implements OAuth2 flow, message parsing, Gmail internal date extraction, label manipulation, and drafting.
 * `Dockerfile`: **[Complete]** Builds the Python/uv runtime image for background service deployment.
 * `docker-compose.yml`: **[Complete]** Runs the bot as a restartable service with persisted SQLite and mounted Gmail credentials/token files.
 * `README.md`: **[Complete]** Setup, Docker Compose, environment variable, and Discord usage documentation.
@@ -86,6 +90,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * `GMAIL_TOKEN_PATH` for the persisted Gmail OAuth token.
 * `RULES_PATH` for optional semantic triage rules (`/app/config/rules.txt` in Docker).
 * Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailtriage` service.
+* Inbox refresh now uses a timestamp-based scheduler that wakes frequently and triggers when the 30-minute wall-clock interval has elapsed, so laptop sleep time counts toward the interval.
 
 ### 6. Proactive Auto-Archive & Inbox Management
 
@@ -104,11 +109,13 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Integrate a local vector database.
 * When classifying emails, retrieve the top 10 most semantically relevant user corrections to inject into the LLM prompt for highly targeted context.
 
-### 9. Inbox Synchronization & Summaries
+### 9. Inbox Synchronization & Summaries [Complete]
 
 * Process unread emails that are already in the inbox (but not in the database) and default them to `Routine`.
 * After every sync, send a single consolidated summary message to Discord containing a 1-line overview (Subject + truncated body) for all `Routine` emails processed in that batch.
-* Provide a mechanism (e.g., via the summary message or a slash command) for the user to correct a misclassified `Routine` email back to `Important`/`Urgent`/`Quick_Reply`.
+* Provide `/correct-routine` so the user can correct a misclassified `Routine` email back to `Important` or `Quick_Reply`.
+* Quick reply corrections create a Gmail draft, mark the message unread, update SQLite status, and save the correction for future prompts.
+* Routine summary delivery is logged and chunked under Discord's message length limit.
 
 ### 10. Two-Tiered "Important" Categories
 

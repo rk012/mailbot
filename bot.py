@@ -6,7 +6,6 @@ from typing import Optional
 
 import discord
 from discord.ext import tasks
-from discord.commands import slash_command
 
 from db import Database
 from gmail import GmailClient
@@ -17,6 +16,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("MailBot")
 INBOX_REFRESH_INTERVAL = timedelta(minutes=30)
 INBOX_REFRESH_CHECK_INTERVAL_SECONDS = 60
+MAX_DRAFT_SENTENCES = 2
+CORRECTABLE_ROUTINE_CATEGORIES = ["Important", "Quick_Reply"]
+DISCORD_MESSAGE_LIMIT = 2000
 
 # --- Discord UI Views ---
 
@@ -46,7 +48,7 @@ class CorrectionView(discord.ui.View):
             if corrected == "Routine":
                 self.gmail.modify_email_state(self.message_id, "read")
                 self.db.add_or_update_email(self.message_id, "routine", self.subject)
-            elif corrected == "Important" or corrected == "Quick_Reply":
+            elif corrected in ["Important", "Quick_Reply"]:
                 self.db.update_email_status(self.message_id, corrected.lower())
                 self.gmail.modify_email_state(self.message_id, "unread")
                 
@@ -108,6 +110,7 @@ class MailTriageCog(discord.Cog):
         self.gmail = gmail
         self.llm = llm
         self.channel_id = channel_id
+        self.started_at = datetime.now(timezone.utc)
         
         try:
             user_info = self.gmail.get_user_info()
@@ -129,6 +132,143 @@ class MailTriageCog(discord.Cog):
 
     def cog_unload(self):
         self.process_inbox.cancel()
+
+    def _normalize_category(self, category: str) -> str:
+        normalized = (category or "").strip().lower().replace("-", "_").replace(" ", "_")
+        category_map = {
+            "routine": "Routine",
+            "quickreply": "Quick_Reply",
+            "quick_reply": "Quick_Reply",
+            "important": "Important",
+        }
+        return category_map.get(normalized, "Important")
+
+    def _truncate_text(self, text: str, limit: int) -> str:
+        clean_text = re.sub(r'\s+', ' ', text or '').strip()
+        if len(clean_text) <= limit:
+            return clean_text
+        return clean_text[: max(0, limit - 3)].rstrip() + "..."
+
+    def _limit_draft_sentences(self, draft_text: str) -> str:
+        clean_text = re.sub(r'\s+', ' ', draft_text or '').strip().strip('"')
+        if not clean_text:
+            return ""
+
+        sentences = re.split(r'(?<=[.!?])\s+', clean_text)
+        return " ".join(sentences[:MAX_DRAFT_SENTENCES]).strip()
+
+    def _generate_quick_reply_draft(self, email: dict) -> str:
+        prompt = f"""Write a concise Gmail reply on behalf of {self.user_name} ({self.user_email}).
+The reply must be fewer than 3 sentences. Return only the draft text.
+
+Email:
+From: {email.get('sender', 'Unknown')}
+To: {email.get('recipient', 'Unknown')}
+Subject: {email.get('subject', '')}
+Body:
+{self._truncate_text(email.get('body', ''), 3000)}
+"""
+        return self._limit_draft_sentences(self.llm.generate_response(prompt))
+
+    def _is_preexisting_unread_email(self, email: dict) -> bool:
+        internal_date = email.get('internal_date')
+        return bool(internal_date and internal_date < self.started_at)
+
+    def _build_routine_summary_chunks(self, emails: list) -> list:
+        header = (
+            f"**Routine Sync Summary ({len(emails)})**\n"
+            "Use `/correct-routine` with the message ID if one needs attention.\n"
+        )
+        if not emails:
+            return [header + "No routine emails were processed."]
+
+        available_chars = max(600, DISCORD_MESSAGE_LIMIT - 50 - len(header))
+        line_budget = max(70, available_chars // len(emails))
+        subject_limit = max(20, min(45, line_budget // 3))
+        body_limit = max(20, min(55, line_budget - subject_limit - 35))
+
+        chunks = []
+        current_chunk = header
+        for email in emails:
+            subject = self._truncate_text(email.get('subject') or "(No subject)", subject_limit)
+            body = self._truncate_text(email.get('body') or "[No body]", body_limit)
+            line = f"- `{email['message_id']}` {subject} - {body}\n"
+            if len(current_chunk) + len(line) > DISCORD_MESSAGE_LIMIT:
+                chunks.append(current_chunk.rstrip())
+                current_chunk = line
+            else:
+                current_chunk += line
+
+        if current_chunk.strip():
+            chunks.append(current_chunk.rstrip())
+
+        return chunks
+
+    async def _send_routine_summary(self, channel, emails: list):
+        if not emails:
+            logger.info("No routine emails in this sync batch; skipping summary.")
+            return
+
+        chunks = self._build_routine_summary_chunks(emails)
+        logger.info(
+            f"Sending routine sync summary for {len(emails)} emails to Discord channel "
+            f"{getattr(channel, 'id', 'unknown')} in {len(chunks)} message(s)."
+        )
+
+        for chunk in chunks:
+            await channel.send(
+                chunk,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+
+        logger.info("Routine sync summary sent successfully.")
+
+    def _record_routine_email(self, email: dict):
+        self.gmail.modify_email_state(email['message_id'], "read")
+        self.db.add_or_update_email(
+            email['message_id'],
+            "routine",
+            email.get('subject', ''),
+            email.get('body', ''),
+            email.get('sender', ''),
+            email.get('recipient', ''),
+            email.get('cc', ''),
+        )
+
+    async def _correct_routine_email(self, message_id: str, corrected: str) -> str:
+        corrected = self._normalize_category(corrected)
+        if corrected not in CORRECTABLE_ROUTINE_CATEGORIES:
+            raise ValueError(f"Category must be one of: {', '.join(CORRECTABLE_ROUTINE_CATEGORIES)}")
+
+        email = self.db.get_email(message_id)
+        if not email:
+            raise ValueError("I could not find that message ID in the local database.")
+        if email.get('status') != "routine":
+            raise ValueError(f"That email is currently tracked as `{email.get('status')}`, not `routine`.")
+
+        snippet = self._truncate_text(email.get('body', ''), 200)
+        self.db.add_correction(
+            message_id,
+            email.get('subject', ''),
+            snippet,
+            email.get('sender', ''),
+            email.get('recipient', ''),
+            email.get('cc', ''),
+            "Routine",
+            corrected,
+        )
+
+        if corrected == "Quick_Reply":
+            draft_text = self._generate_quick_reply_draft(email)
+            if draft_text:
+                self.gmail.create_draft_reply(message_id, draft_text)
+            self.db.update_email_status(message_id, "quick_reply")
+            self.gmail.modify_email_state(message_id, "unread")
+            return f"Corrected to `Quick_Reply`, marked unread, and created a draft: `{draft_text}`"
+
+        self.db.update_email_status(message_id, corrected.lower())
+        self.gmail.modify_email_state(message_id, "unread")
+        return f"Corrected to `{corrected}` and marked unread."
 
     def classify_emails(self, emails: list) -> dict:
         if not emails:
@@ -241,6 +381,21 @@ Emails to classify:
         view = ArchiveReviewView(routine_emails, self.db, self.gmail)
         await ctx.respond(summary, view=view)
 
+    @discord.slash_command(name="correct-routine", description="Correct a routine email from a sync summary.")
+    async def correct_routine(
+        self,
+        ctx: discord.ApplicationContext,
+        message_id: discord.Option(str, "Gmail message ID from the routine summary."),
+        category: discord.Option(str, "Corrected category.", choices=CORRECTABLE_ROUTINE_CATEGORIES),
+    ):
+        await ctx.defer(ephemeral=True)
+        try:
+            result = await self._correct_routine_email(message_id, category)
+            await ctx.followup.send(result, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error correcting routine email {message_id}: {e}")
+            await ctx.followup.send(f"Could not apply correction: {e}", ephemeral=True)
+
 
     @tasks.loop(seconds=INBOX_REFRESH_CHECK_INTERVAL_SECONDS)
     async def process_inbox(self):
@@ -271,12 +426,34 @@ Emails to classify:
                 logger.info("No new unread emails.")
                 return
                 
-            emails = [e for e in raw_emails if not self.db.get_email(e['message_id'])]
+            untracked_emails = [e for e in raw_emails if not self.db.get_email(e['message_id'])]
             
-            if not emails:
+            if not untracked_emails:
                 logger.info("No *unprocessed* new unread emails.")
                 return
-                
+
+            routine_batch = []
+            existing_unread_emails = [
+                email for email in untracked_emails
+                if self._is_preexisting_unread_email(email)
+            ]
+            emails = [
+                email for email in untracked_emails
+                if not self._is_preexisting_unread_email(email)
+            ]
+
+            if existing_unread_emails:
+                logger.info(
+                    f"Defaulting {len(existing_unread_emails)} pre-existing unread inbox emails to Routine."
+                )
+                for email in existing_unread_emails:
+                    self._record_routine_email(email)
+                    routine_batch.append(email)
+
+            if not emails:
+                await self._send_routine_summary(channel, routine_batch)
+                return
+
             logger.info(f"Classifying {len(emails)} emails in batch...")
             classifications = self.classify_emails(emails)
             
@@ -288,22 +465,22 @@ Emails to classify:
                     "reasoning": "Missing from LLM batch output."
                 })
                 
-                category = classification.get("category", "Important")
+                category = self._normalize_category(classification.get("category", "Important"))
                 reasoning = classification.get("reasoning", "No reasoning provided.")
                 
                 snippet = email['body'][:100] + "..." if email['body'] else ""
                 view = CorrectionView(msg_id, email['subject'], snippet, email['sender'], email['recipient'], email['cc'], category, self.db, self.gmail)
                 
                 if category == "Routine":
-                    self.gmail.modify_email_state(msg_id, "read")
-                    self.db.add_or_update_email(msg_id, "routine", email['subject'], email['body'], email['sender'], email['recipient'], email['cc'])
+                    self._record_routine_email(email)
+                    routine_batch.append(email)
                     logger.info(f"Marked {msg_id} as Routine.")
                     
                 elif category == "Quick_Reply":
                     self.db.add_or_update_email(msg_id, "quick_reply", email['subject'], email['body'], email['sender'], email['recipient'], email['cc'])
                     
                     draft_needed = classification.get("draft_needed", False)
-                    draft_text = classification.get("draft_text", "")
+                    draft_text = self._limit_draft_sentences(classification.get("draft_text", ""))
                     
                     notification = f"**⚡ Quick Reply Detected:** `{email['subject']}`\n**From:** {email['sender']}\n**Reason:** {reasoning}\n"
                     
@@ -325,9 +502,11 @@ Emails to classify:
                     
                     notification = f"**🚨 Important Email:** `{email['subject']}`\n**From:** {email['sender']}\n**Reason:** {reasoning}\n[View Email](https://mail.google.com/mail/u/0/#inbox/{msg_id})"
                     await channel.send(notification, view=view)
-                    
-        except Exception as e:
-            logger.error(f"Error during inbox processing: {e}")
+
+            await self._send_routine_summary(channel, routine_batch)
+
+        except Exception:
+            logger.exception("Error during inbox processing.")
 
     @process_inbox.before_loop
     async def before_process_inbox(self):

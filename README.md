@@ -7,6 +7,7 @@ Autonomous Gmail triage for a private Discord server. MailTriage polls Gmail, cl
 - Polls Gmail every 30 minutes for unread inbox mail.
 - Classifies messages as `Routine`, `Quick_Reply`, or `Important`.
 - Marks `Routine` mail as read and queues it for `/review-archive`.
+- Sends one consolidated routine summary after each sync batch.
 - Creates Gmail draft replies for `Quick_Reply` messages, keeping drafts under 3 sentences.
 - Leaves `Important` messages unread and sends Discord notifications.
 - Stores user corrections in SQLite and injects them as few-shot examples for future classifications.
@@ -81,6 +82,8 @@ For Docker, put custom semantic triage rules in `./config/rules.txt`. For local 
 ## Discord usage
 
 Use `/review-archive` in the configured Discord channel to review routine messages and archive the queued batch. Notification messages include correction buttons so you can mark misclassified mail as `Routine`, `Quick_Reply`, or `Important`; those corrections are saved in SQLite for future prompts.
+
+After each sync, the bot sends a single routine summary with message IDs, subjects, and body snippets for all routine emails processed in that batch. If a routine item needs attention, use `/correct-routine` with the message ID from the summary and choose `Important` or `Quick_Reply`. Quick reply corrections create a Gmail draft and mark the email unread.
 
 ## Environment variables
 

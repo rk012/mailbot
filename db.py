@@ -41,11 +41,21 @@ class Database:
                     message_id TEXT PRIMARY KEY,
                     email_subject TEXT,
                     email_snippet TEXT,
+                    sender TEXT,
+                    recipient TEXT,
+                    cc TEXT,
                     predicted_category TEXT,
                     corrected_category TEXT,
                     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            
+            # Migrations for existing databases
+            for col in ['sender', 'recipient', 'cc']:
+                try:
+                    cursor.execute(f'ALTER TABLE corrections ADD COLUMN {col} TEXT')
+                except sqlite3.OperationalError:
+                    pass
             
             conn.commit()
 
@@ -101,20 +111,23 @@ class Database:
             cursor.execute('DELETE FROM emails WHERE message_id = ?', (message_id,))
             conn.commit()
 
-    def add_correction(self, message_id: str, subject: str, snippet: str, predicted: str, corrected: str):
+    def add_correction(self, message_id: str, subject: str, snippet: str, sender: str, recipient: str, cc: str, predicted: str, corrected: str):
         """Logs a manual user correction. Uses ON CONFLICT to retain only the latest correction per email."""
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO corrections (message_id, email_subject, email_snippet, predicted_category, corrected_category, timestamp)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO corrections (message_id, email_subject, email_snippet, sender, recipient, cc, predicted_category, corrected_category, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(message_id) DO UPDATE SET
                     email_subject=excluded.email_subject,
                     email_snippet=excluded.email_snippet,
+                    sender=excluded.sender,
+                    recipient=excluded.recipient,
+                    cc=excluded.cc,
                     predicted_category=excluded.predicted_category,
                     corrected_category=excluded.corrected_category,
                     timestamp=CURRENT_TIMESTAMP
-            ''', (message_id, subject, snippet, predicted, corrected))
+            ''', (message_id, subject, snippet, sender, recipient, cc, predicted, corrected))
             conn.commit()
 
     def get_recent_corrections(self, limit: int = 5) -> List[Dict]:
@@ -155,8 +168,8 @@ if __name__ == "__main__":
     print(f"Removed email msg_123. Query: {db.get_email('msg_123')}")
     
     # Test adding correction
-    db.add_correction("msg_789", "Job Offer", "We want to hire...", "Routine", "Important")
-    db.add_correction("msg_789", "Job Offer", "We want to hire...", "Routine", "Quick_Reply") # Overwrite test
+    db.add_correction("msg_789", "Job Offer", "We want to hire...", "rec@test.com", "me@test.com", "", "Routine", "Important")
+    db.add_correction("msg_789", "Job Offer", "We want to hire...", "rec@test.com", "me@test.com", "", "Routine", "Quick_Reply") # Overwrite test
     
     corrections = db.get_recent_corrections(5)
     print(f"Recent corrections: {corrections}")

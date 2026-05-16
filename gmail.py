@@ -11,7 +11,14 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 # If modifying these scopes, delete the file token.json.
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email'
+]
+
+# Relax OAuth scope requirements since Google often appends 'openid' automatically
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 def retry_on_error(max_retries=3, base_delay=1):
     def decorator(func):
@@ -96,6 +103,16 @@ class GmailClient:
         return ""
 
     @retry_on_error()
+    def get_user_info(self) -> dict:
+        """Fetches the authenticated user's email and name via the OAuth2 API."""
+        oauth2_service = build('oauth2', 'v2', credentials=self.creds)
+        user_info = oauth2_service.userinfo().get().execute()
+        return {
+            'email': user_info.get('email', ''),
+            'name': user_info.get('name', 'User')
+        }
+
+    @retry_on_error()
     def get_inbox_emails(self, limit: int = 50, unread_only: bool = True) -> List[Dict]:
         """Fetches recent emails from the inbox."""
         label_ids = ['INBOX']
@@ -105,9 +122,17 @@ class GmailClient:
         messages = results.get('messages', [])
         
         email_data = []
+        seen_threads = set()
+        
         for msg in messages:
             msg_id = msg['id']
             full_msg = self.service.users().messages().get(userId='me', id=msg_id, format='full').execute()
+            
+            thread_id = full_msg.get('threadId')
+            if thread_id in seen_threads:
+                continue
+            if thread_id:
+                seen_threads.add(thread_id)
             
             payload = full_msg['payload']
             headers = payload.get('headers', [])
@@ -120,6 +145,7 @@ class GmailClient:
             
             email_data.append({
                 'message_id': msg_id,
+                'thread_id': thread_id,
                 'subject': subject,
                 'sender': sender,
                 'recipient': recipient,

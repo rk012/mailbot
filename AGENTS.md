@@ -31,8 +31,8 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 
 ## Project Structure & State
 
-* `bot.py`: **[TODO]** Main event loop and Discord UI components.
-* `main.py`: **[TODO]** Entry point for the application, runs discord bot and gmail polling loop in background.
+* `bot.py`: **[Complete]** Main event loop and Discord UI components.
+* `main.py`: **[Complete]** Entry point for the application, runs discord bot and gmail polling loop in background.
 * `llm.py`: **[Complete]** Wrapper for Gemini API.
 * `db.py`: **[Complete]** SQLite schema for email tracking (`inbox.db`) and few-shot user corrections.
 * `gmail.py`: **[Complete]** Implements OAuth2 flow, message parsing, label manipulation, and drafting.
@@ -58,14 +58,14 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Mark specific email as [read, unread, archive]
 * Add draft reply to a particular email
 
-### 3. Discord Bot Wrapper (`bot.py`)
+### 3. Discord Bot Wrapper (`bot.py`) [Complete]
 
 * Specific channel id can be hardcoded in env file
 * Implement `/review-archive` command to batch-archive the `Routine` queue.
 * Implement manual overrides via Discord buttons to "teach" the model when it misclassifies.
 
 
-### 4. Error Handling & Robustness
+### 4. Error Handling & Robustness [Complete]
 
 * Implement token truncation for extremely long email threads before sending to Gemini.
 * Add a retry mechanism for Gmail API rate limits.
@@ -73,8 +73,8 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 
 ### 5. Deployment Logic
 
-* Configure the project to run as a background service or within a Docker container.
-* Ensure SQLite database persistence.
+* Configure the project to run as a background service via Docker Compose (`docker-compose.yml` and `Dockerfile`).
+* Ensure SQLite database persistence and proper volume mapping for credentials.
 
 ## Guardrails & Constraints
 

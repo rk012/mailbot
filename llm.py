@@ -1,7 +1,9 @@
 import os
+import logging
 from abc import ABC, abstractmethod
 from google import genai
 
+logger = logging.getLogger("MailBot")
 
 class LLMClient(ABC):
     """
@@ -34,6 +36,7 @@ class GeminiClient(LLMClient):
         """
         Sends the prompt to the Gemini API and extracts the text response.
         """
+        logger.debug(f"--- SENDING PROMPT TO LLM ---\n{prompt}\n-----------------------------")
         try:
             response = self.client.models.generate_content(
                 model=self.model_id,

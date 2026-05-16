@@ -71,10 +71,40 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Add a retry mechanism for Gmail API rate limits.
 * Ensure the `process_inbox` task handles "No new mail" states gracefully without spamming Discord.
 
-### 5. Deployment Logic
+### 5. Deployment & Polish
 
 * Configure the project to run as a background service via Docker Compose (`docker-compose.yml` and `Dockerfile`).
 * Ensure SQLite database persistence and proper volume mapping for credentials.
+* Add a polished `README.md` with setup and usage instructions.
+
+### 6. Proactive Auto-Archive & Inbox Management
+
+* Create a 24hr background loop to review all read emails in the inbox.
+* Use LLM prompting to decide if they should be archived (i.e., no follow-up expected).
+* Skip/ignore emails the user previously marked to keep via a `/review-archive` interaction.
+* Periodically ping the user to run `/review-archive` when the inbox reaches a high capacity.
+
+### 7. Enhanced Review-Archive UI
+
+* Add options for "Archive All" or "Save Choices" to the `/review-archive` Discord UI.
+* For "Save Choices", read the current states directly from Gmail to sync the user's manual archive/keep actions back into the database preferences.
+
+### 8. Vector DB for Few-Shot Learning
+
+* Integrate a local vector database.
+* When classifying emails, retrieve the top 10 most semantically relevant user corrections to inject into the LLM prompt for highly targeted context.
+
+### 9. Inbox Synchronization & Summaries
+
+* Process unread emails that are already in the inbox (but not in the database) and default them to `Routine`.
+* After every sync, send a single consolidated summary message to Discord containing a 1-line overview (Subject + truncated body) for all `Routine` emails processed in that batch.
+* Provide a mechanism (e.g., via the summary message or a slash command) for the user to correct a misclassified `Routine` email back to `Important`/`Urgent`/`Quick_Reply`.
+
+### 10. Two-Tiered "Important" Categories
+
+* Implement two levels of importance: `Important` and `Urgent`.
+* `Important`: Keeps email unread and sends a normal Discord notification.
+* `Urgent`: Keeps email unread, sends a Discord notification, AND explicitly pings a specific Discord user ID.
 
 ## Guardrails & Constraints
 

@@ -1,0 +1,36 @@
+services:
+  mailtriage:
+    build: .
+    container_name: mailtriage
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_PATH: /app/data/inbox.db
+      GMAIL_CREDENTIALS_PATH: /app/secrets/credentials.json
+      GMAIL_TOKEN_PATH: /app/secrets/token.json
+      RULES_PATH: /app/config/rules.txt
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: true
+      - type: bind
+        source: ./credentials.json
+        target: /app/secrets/credentials.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./token.json
+        target: /app/secrets/token.json
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./config
+        target: /app/config
+        read_only: true
+        bind:
+          create_host_path: true

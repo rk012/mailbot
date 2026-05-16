@@ -156,8 +156,9 @@ class MailTriageCog(discord.Cog):
         
         custom_rules = ""
         try:
-            if os.path.exists("rules.txt"):
-                with open("rules.txt", "r") as f:
+            rules_path = os.environ.get("RULES_PATH", "rules.txt")
+            if os.path.exists(rules_path):
+                with open(rules_path, "r") as f:
                     content = f.read().strip()
                     if content:
                         custom_rules = f"\nUser's Custom Rules:\n{content}\n"

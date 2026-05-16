@@ -3,6 +3,7 @@ import base64
 import time
 from typing import List, Dict
 from email.message import EmailMessage
+from pathlib import Path
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -67,6 +68,9 @@ class GmailClient:
                 # Open browser for authentication
                 self.creds = flow.run_local_server(port=0)
             # Save the credentials for the next run
+            token_parent = Path(self.token_path).parent
+            if str(token_parent) != ".":
+                token_parent.mkdir(parents=True, exist_ok=True)
             with open(self.token_path, 'w') as token:
                 token.write(self.creds.to_json())
                 

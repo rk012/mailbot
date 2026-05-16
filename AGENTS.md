@@ -36,6 +36,9 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * `llm.py`: **[Complete]** Wrapper for Gemini API.
 * `db.py`: **[Complete]** SQLite schema for email tracking (`inbox.db`) and few-shot user corrections.
 * `gmail.py`: **[Complete]** Implements OAuth2 flow, message parsing, label manipulation, and drafting.
+* `Dockerfile`: **[Complete]** Builds the Python/uv runtime image for background service deployment.
+* `docker-compose.yml`: **[Complete]** Runs the bot as a restartable service with persisted SQLite and mounted Gmail credentials/token files.
+* `README.md`: **[Complete]** Setup, Docker Compose, environment variable, and Discord usage documentation.
 * `.env`:  Contains API keys and Discord IDs.
 
 ---
@@ -71,11 +74,18 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Add a retry mechanism for Gmail API rate limits.
 * Ensure the `process_inbox` task handles "No new mail" states gracefully without spamming Discord.
 
-### 5. Deployment & Polish
+### 5. Deployment & Polish [Complete]
 
 * Configure the project to run as a background service via Docker Compose (`docker-compose.yml` and `Dockerfile`).
 * Ensure SQLite database persistence and proper volume mapping for credentials.
 * Add a polished `README.md` with setup and usage instructions.
+* Added `.env.example` and `.dockerignore` to document required environment values and keep secrets/runtime state out of image builds.
+* Added env-configurable paths:
+* `DB_PATH` for SQLite (`/app/data/inbox.db` in Docker).
+* `GMAIL_CREDENTIALS_PATH` for Gmail OAuth client credentials.
+* `GMAIL_TOKEN_PATH` for the persisted Gmail OAuth token.
+* `RULES_PATH` for optional semantic triage rules (`/app/config/rules.txt` in Docker).
+* Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailtriage` service.
 
 ### 6. Proactive Auto-Archive & Inbox Management
 

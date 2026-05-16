@@ -1,6 +1,7 @@
 import logging
 import re
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import discord
@@ -14,6 +15,8 @@ import os
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("MailBot")
+INBOX_REFRESH_INTERVAL = timedelta(minutes=30)
+INBOX_REFRESH_CHECK_INTERVAL_SECONDS = 60
 
 # --- Discord UI Views ---
 
@@ -120,7 +123,8 @@ class MailTriageCog(discord.Cog):
             logger.error(f"Failed to fetch user info: {e}")
             self.user_email = "Unknown"
             self.user_name = os.environ.get("USER_NAME", "User")
-            
+
+        self.last_inbox_refresh_at: Optional[datetime] = None
         self.process_inbox.start()
 
     def cog_unload(self):
@@ -238,8 +242,19 @@ Emails to classify:
         await ctx.respond(summary, view=view)
 
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(seconds=INBOX_REFRESH_CHECK_INTERVAL_SECONDS)
     async def process_inbox(self):
+        now = datetime.now(timezone.utc)
+        if (
+            self.last_inbox_refresh_at
+            and now - self.last_inbox_refresh_at < INBOX_REFRESH_INTERVAL
+        ):
+            return
+
+        self.last_inbox_refresh_at = now
+        await self._process_inbox_now()
+
+    async def _process_inbox_now(self):
         if not self.channel_id:
             logger.warning("DISCORD_CHANNEL_ID is not set. Cannot send notifications.")
             return

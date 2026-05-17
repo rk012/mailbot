@@ -1,6 +1,6 @@
-# MailTriage
+# Mailbot
 
-Autonomous Gmail triage for a private Discord server. MailTriage polls Gmail, classifies unread inbox messages with Gemini Flash-Lite, drafts short replies when appropriate, and lets you teach the classifier from Discord buttons.
+Autonomous Gmail triage for a private Discord server. Mailbot polls Gmail, classifies unread inbox messages with Gemini Flash-Lite, drafts short replies when appropriate, and lets you teach the classifier from Discord buttons.
 
 ## What it does
 

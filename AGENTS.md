@@ -89,7 +89,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * `GMAIL_CREDENTIALS_PATH` for Gmail OAuth client credentials.
 * `GMAIL_TOKEN_PATH` for the persisted Gmail OAuth token.
 * `RULES_PATH` for optional semantic triage rules (`/app/config/rules.txt` in Docker).
-* Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailtriage` service.
+* Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailbot` service.
 * Inbox refresh now uses a timestamp-based scheduler that wakes frequently and triggers when the 30-minute wall-clock interval has elapsed, so laptop sleep time counts toward the interval.
 
 ### 6. Proactive Auto-Archive & Inbox Management

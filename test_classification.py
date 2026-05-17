@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from db import Database
 from gmail import GmailClient
 from llm import GeminiClient
-from bot import MailTriageCog
+from bot import MailbotCog
 
 class DummyBot:
     async def wait_until_ready(self):
@@ -22,7 +22,7 @@ async def main():
     
     # Initialize Cog with a dummy bot to access the classify_emails method
     # Note: process_inbox will start in the background but exit immediately since channel_id is 0
-    cog = MailTriageCog(DummyBot(), db, gmail, llm, 0)
+    cog = MailbotCog(DummyBot(), db, gmail, llm, 0)
     
     print("Fetching up to 50 emails from Inbox (both read and unread)...")
     emails = gmail.get_inbox_emails(limit=50, unread_only=False)

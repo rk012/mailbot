@@ -755,7 +755,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mailtriage"
+name = "mailbot"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

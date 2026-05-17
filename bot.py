@@ -103,7 +103,7 @@ class ArchiveReviewView(discord.ui.View):
 
 # --- Bot Cog ---
 
-class MailTriageCog(discord.Cog):
+class MailbotCog(discord.Cog):
     def __init__(self, bot: discord.Bot, db: Database, gmail: GmailClient, llm: GeminiClient, channel_id: int):
         self.bot = bot
         self.db = db
@@ -526,7 +526,7 @@ Emails to classify:
 def create_bot(db: Database, gmail: GmailClient, llm: GeminiClient, channel_id: int) -> discord.Bot:
     intents = discord.Intents.default()
     bot = discord.Bot(intents=intents)
-    bot.add_cog(MailTriageCog(bot, db, gmail, llm, channel_id))
+    bot.add_cog(MailbotCog(bot, db, gmail, llm, channel_id))
     
     @bot.event
     async def on_ready():

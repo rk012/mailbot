@@ -1,7 +1,7 @@
 services:
-  mailtriage:
+  mailbot:
     build: .
-    container_name: mailtriage
+    container_name: mailbot
     restart: unless-stopped
     env_file:
       - .env

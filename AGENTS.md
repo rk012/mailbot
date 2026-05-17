@@ -109,13 +109,14 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Integrate a local vector database.
 * When classifying emails, retrieve the top 10 most semantically relevant user corrections to inject into the LLM prompt for highly targeted context.
 
-### 9. Inbox Synchronization & Summaries [Complete]
+### 9. Inbox Synchronization & Summaries [In progress]
 
 * Process unread emails that are already in the inbox (but not in the database) and default them to `Routine`.
 * After every sync, send a single consolidated summary message to Discord containing a 1-line overview (Subject + truncated body) for all `Routine` emails processed in that batch.
 * Provide `/correct-routine` so the user can correct a misclassified `Routine` email back to `Important` or `Quick_Reply`.
 * Quick reply corrections create a Gmail draft, mark the message unread, update SQLite status, and save the correction for future prompts.
 * Routine summary delivery is logged and chunked under Discord's message length limit.
+* When a quick reply is corrected to something else, delete the draft.
 
 ### 10. Two-Tiered "Important" Categories
 

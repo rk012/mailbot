@@ -312,7 +312,7 @@ Body:
         prompt = f"""You are an AI assistant that triages a user's Gmail inbox. {user_context}
 Classify the following emails into one of three categories:
 1. Routine: Newsletters, automated alerts, marketing, generic updates where no reply is expected. Also use this for emails sent to mailing lists or where the user is merely CC'd and no direct action is needed from them.
-2. Quick_Reply: ANY email (including those from recruiters, professors, or important contacts) that can be fully answered with a brief (< 3 sentences) reply.
+2. Quick_Reply: ANY email (including those from recruiters, professors, or important contacts) where a reply is STRICTLY REQUIRED or expected, and it can be fully answered with a brief (< 3 sentences) reply. DO NOT use this for cold outreaches, automated advertising, or PR pitches.
 3. Important: Recruiters, professors, interviews, personal matters, or urgent tasks that require a longer, thoughtful response, or action outside of a quick email reply.
 
 Reply EXACTLY with a JSON dictionary mapping the Message ID string to its classification object:
@@ -395,6 +395,17 @@ Emails to classify:
         except Exception as e:
             logger.error(f"Error correcting routine email {message_id}: {e}")
             await ctx.followup.send(f"Could not apply correction: {e}", ephemeral=True)
+
+    @discord.slash_command(name="sync-now", description="Manually trigger an inbox sync.")
+    async def sync_now(self, ctx: discord.ApplicationContext):
+        await ctx.defer(ephemeral=True)
+        try:
+            await self._process_inbox_now()
+            await ctx.followup.send("✅ Sync completed.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Manual sync failed: {e}")
+            await ctx.followup.send(f"❌ Sync failed: {e}", ephemeral=True)
+
 
 
     @tasks.loop(seconds=INBOX_REFRESH_CHECK_INTERVAL_SECONDS)
@@ -488,19 +499,19 @@ Emails to classify:
                         try:
                             self.gmail.create_draft_reply(msg_id, draft_text)
                             notification += f"**Draft Created:** `{draft_text}`\n"
-                            notification += f"[View Email/Draft](https://mail.google.com/mail/u/0/#inbox/{msg_id})"
+                            notification += f"[View Email/Draft](<https://mail.google.com/mail/u/0/#inbox/{msg_id}>)"
                         except Exception as e:
                             logger.error(f"Failed to create draft: {e}")
                             notification += f"\n*Failed to create draft: {e}*"
                     else:
-                        notification += f"[View Email](https://mail.google.com/mail/u/0/#inbox/{msg_id})"
+                        notification += f"[View Email](<https://mail.google.com/mail/u/0/#inbox/{msg_id}>)"
                         
                     await channel.send(notification, view=view)
                     
                 else: # Important or fallback
                     self.db.add_or_update_email(msg_id, "important", email['subject'], email['body'], email['sender'], email['recipient'], email['cc'])
                     
-                    notification = f"**🚨 Important Email:** `{email['subject']}`\n**From:** {email['sender']}\n**Reason:** {reasoning}\n[View Email](https://mail.google.com/mail/u/0/#inbox/{msg_id})"
+                    notification = f"**🚨 Important Email:** `{email['subject']}`\n**From:** {email['sender']}\n**Reason:** {reasoning}\n[View Email](<https://mail.google.com/mail/u/0/#inbox/{msg_id}>)"
                     await channel.send(notification, view=view)
 
             await self._send_routine_summary(channel, routine_batch)

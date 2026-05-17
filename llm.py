@@ -1,5 +1,6 @@
 import os
 import logging
+import time
 from abc import ABC, abstractmethod
 from google import genai
 
@@ -23,8 +24,10 @@ class GeminiClient(LLMClient):
     Gemini implementation utilizing the modern `google-genai` SDK.
     Requires GEMINI_API_KEY in the environment variables.
     """
-    def __init__(self):
+    def __init__(self, max_retries=3, backoff_factor=2.0):
         self.model_id = os.environ.get("GEMINI_MODEL", "gemini-3.1-flash-lite")
+        self.max_retries = max_retries
+        self.backoff_factor = backoff_factor
 
         # The client automatically authenticates using os.environ["GEMINI_API_KEY"]
         try:
@@ -35,16 +38,28 @@ class GeminiClient(LLMClient):
     def generate_response(self, prompt: str) -> str:
         """
         Sends the prompt to the Gemini API and extracts the text response.
+        Includes simple exponential backoff for transient API errors.
         """
         logger.debug(f"--- SENDING PROMPT TO LLM ---\n{prompt}\n-----------------------------")
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_id,
-                contents=prompt
-            )
+        
+        last_error = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_id,
+                    contents=prompt
+                )
 
-            # noinspection PyTypeChecker
-            return response.text
+                # noinspection PyTypeChecker
+                return response.text
 
-        except Exception as e:
-            return f"Error communicating with Gemini API: {e}"
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    sleep_time = self.backoff_factor ** attempt
+                    logger.warning(f"Gemini API error (attempt {attempt}/{self.max_retries}). Retrying in {sleep_time}s... Error: {e}")
+                    time.sleep(sleep_time)
+                else:
+                    logger.error(f"Gemini API failed after {self.max_retries} attempts. Final error: {e}")
+        
+        raise RuntimeError(f"Failed to communicate with Gemini API after {self.max_retries} attempts: {last_error}")

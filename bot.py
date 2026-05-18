@@ -409,7 +409,7 @@ Emails to classify:
         
         prompt = f"""You are an AI assistant managing a user's Gmail inbox. {user_context}
 The following emails have already been read by the user but remain in the inbox.
-Decide if they should be proactively archived or if they should be kept in the inbox because a follow-up is expected or they contain important reference information.
+Decide if they should be proactively archived or kept in the inbox.
 
 Reply EXACTLY with a JSON dictionary mapping the Message ID string to its boolean recommendation:
 {{
@@ -417,8 +417,8 @@ Reply EXACTLY with a JSON dictionary mapping the Message ID string to its boolea
   "message_id_2": false
 }}
 
-Set the value to `true` if it's safe to archive (e.g., newsletters, resolved conversations, marketing).
-Set the value to `false` if it should be kept (e.g., pending tasks, important reference).
+Set the value to `true` if it's safe to archive. Archive ALMOST EVERYTHING. Do NOT keep emails in the inbox just for "searchability" or "important reference" because Gmail searches all archived emails anyway.
+Set the value to `false` ONLY if the email represents an active, pending task, or if the user is expecting a follow-up reply very soon.
 
 Emails to classify:
 {emails_text}

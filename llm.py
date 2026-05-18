@@ -63,3 +63,32 @@ class GeminiClient(LLMClient):
                     logger.error(f"Gemini API failed after {self.max_retries} attempts. Final error: {e}")
         
         raise RuntimeError(f"Failed to communicate with Gemini API after {self.max_retries} attempts: {last_error}")
+
+    def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """
+        Sends texts to the Gemini API to generate embeddings.
+        Includes simple exponential backoff for transient API errors.
+        """
+        if not texts:
+            return []
+            
+        last_error = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self.client.models.embed_content(
+                    model="text-embedding-004",
+                    contents=texts
+                )
+                # Google-genai response structure for embed_content has an embeddings property
+                return [emb.values for emb in response.embeddings]
+
+            except Exception as e:
+                last_error = e
+                if attempt < self.max_retries:
+                    sleep_time = self.backoff_factor ** attempt
+                    logger.warning(f"Gemini Embedding API error (attempt {attempt}/{self.max_retries}). Retrying in {sleep_time}s... Error: {e}")
+                    time.sleep(sleep_time)
+                else:
+                    logger.error(f"Gemini Embedding API failed after {self.max_retries} attempts. Final error: {e}")
+        
+        raise RuntimeError(f"Failed to generate embeddings with Gemini API after {self.max_retries} attempts: {last_error}")

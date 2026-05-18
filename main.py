@@ -23,12 +23,13 @@ if __name__ == "__main__":
     except ValueError:
         channel_id = 0
         
-    db = Database(os.environ.get("DB_PATH", "inbox.db"))
+    llm = GeminiClient()
+    db = Database(os.environ.get("DB_PATH", "inbox.db"), llm_client=llm)
     gmail = GmailClient(
         credentials_path=os.environ.get("GMAIL_CREDENTIALS_PATH", "credentials.json"),
         token_path=os.environ.get("GMAIL_TOKEN_PATH", "token.json"),
     )
-    llm = GeminiClient()
+
     
     bot = create_bot(db, gmail, llm, channel_id)
     bot.run(DISCORD_TOKEN)

@@ -1,11 +1,39 @@
 import sqlite3
 import os
+import json
 from typing import List, Dict, Optional
 
+try:
+    import chromadb
+    from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
+    EmbeddingFunction = object  # dummy
+
+class GeminiEmbeddingFunction(EmbeddingFunction):
+    def __init__(self, llm_client):
+        self.llm_client = llm_client
+
+    def __call__(self, input: "Documents") -> "Embeddings":
+        if not self.llm_client:
+            return []
+        return self.llm_client.generate_embeddings(input)
+
 class Database:
-    def __init__(self, db_path="inbox.db"):
+    def __init__(self, db_path="inbox.db", llm_client=None):
         self.db_path = db_path
         self._initialize_db()
+        
+        self.chroma_client = None
+        self.corrections_collection = None
+        if CHROMA_AVAILABLE and llm_client:
+            chroma_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)) or ".", "chroma")
+            self.chroma_client = chromadb.PersistentClient(path=chroma_dir)
+            self.corrections_collection = self.chroma_client.get_or_create_collection(
+                name="corrections",
+                embedding_function=GeminiEmbeddingFunction(llm_client)
+            )
 
     def _get_connection(self):
         return sqlite3.connect(self.db_path)
@@ -129,6 +157,28 @@ class Database:
                     timestamp=CURRENT_TIMESTAMP
             ''', (message_id, subject, snippet, sender, recipient, cc, predicted, corrected))
             conn.commit()
+            
+        if self.corrections_collection:
+            doc_text = f"Subject: {subject}\nFrom: {sender}\nTo: {recipient}\nSnippet: {snippet}"
+            metadata = {
+                "message_id": message_id,
+                "email_subject": subject,
+                "email_snippet": snippet,
+                "sender": sender,
+                "recipient": recipient,
+                "cc": cc,
+                "predicted_category": predicted,
+                "corrected_category": corrected
+            }
+            try:
+                self.corrections_collection.upsert(
+                    documents=[doc_text],
+                    metadatas=[metadata],
+                    ids=[message_id]
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger("MailBot").error(f"Failed to upsert to ChromaDB: {e}")
 
     def get_recent_corrections(self, limit: int = 5) -> List[Dict]:
         """Fetches the most recent corrections to inject into the LLM system prompt."""
@@ -137,6 +187,33 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM corrections ORDER BY timestamp DESC LIMIT ?', (limit,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_semantically_relevant_corrections(self, query_text: str, limit: int = 10) -> List[Dict]:
+        """Fetches the most semantically relevant corrections from ChromaDB. Falls back to recent corrections."""
+        if not self.corrections_collection:
+            return self.get_recent_corrections(limit)
+            
+        try:
+            # Query the collection
+            # n_results cannot exceed the number of items in the collection, so we count first
+            count = self.corrections_collection.count()
+            if count == 0:
+                return []
+                
+            actual_limit = min(limit, count)
+            results = self.corrections_collection.query(
+                query_texts=[query_text],
+                n_results=actual_limit
+            )
+            
+            if not results["metadatas"] or len(results["metadatas"]) == 0 or not results["metadatas"][0]:
+                return []
+                
+            return results["metadatas"][0]
+        except Exception as e:
+            import logging
+            logging.getLogger("MailBot").error(f"Failed to query ChromaDB: {e}")
+            return self.get_recent_corrections(limit)
 
 
 if __name__ == "__main__":

@@ -92,14 +92,14 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailbot` service.
 * Inbox refresh now uses a timestamp-based scheduler that wakes frequently and triggers when the 30-minute wall-clock interval has elapsed, so laptop sleep time counts toward the interval.
 
-### 6. Proactive Auto-Archive & Inbox Management
+### 6. Proactive Auto-Archive & Inbox Management [Complete]
 
 * Create a 24hr background loop to review all read emails in the inbox.
 * Use LLM prompting to decide if they should be archived (i.e., no follow-up expected).
 * Skip/ignore emails the user previously marked to keep via a `/review-archive` interaction.
 * Periodically ping the user to run `/review-archive` when the inbox reaches a high capacity.
 
-### 7. Enhanced Review-Archive UI
+### 7. Enhanced Review-Archive UI [Complete]
 
 * Add options for "Archive All" or "Save Choices" to the `/review-archive` Discord UI.
 * For "Save Choices", read the current states directly from Gmail to sync the user's manual archive/keep actions back into the database preferences.

@@ -187,6 +187,12 @@ class GmailClient:
         self.service.users().messages().modify(userId='me', id=message_id, body=body_payload).execute()
 
     @retry_on_error()
+    def get_email_labels(self, message_id: str) -> List[str]:
+        """Fetches the current labels of a specific email."""
+        msg = self.service.users().messages().get(userId='me', id=message_id, format='minimal').execute()
+        return msg.get('labelIds', [])
+
+    @retry_on_error()
     def create_draft_reply(self, message_id: str, draft_text: str):
         """Creates a perfectly threaded draft reply to a given email."""
         # Fetch the original email to get threading headers

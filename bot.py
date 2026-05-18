@@ -96,6 +96,26 @@ class ArchiveReviewView(discord.ui.View):
         
         await interaction.followup.edit_message(message_id=interaction.message.id, content=f"✅ Successfully archived {archived_count} routine emails.", view=None)
 
+    @discord.ui.button(label="Save Choices", style=discord.ButtonStyle.primary)
+    async def save_choices_btn(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await interaction.response.defer()
+        archived_count = 0
+        kept_count = 0
+        for email in self.emails:
+            msg_id = email['message_id']
+            try:
+                labels = self.gmail.get_email_labels(msg_id)
+                if 'INBOX' not in labels:
+                    self.db.remove_email(msg_id)
+                    archived_count += 1
+                else:
+                    self.db.update_email_status(msg_id, "keep")
+                    kept_count += 1
+            except Exception as e:
+                logger.error(f"Failed to check state for {msg_id}: {e}")
+        
+        await interaction.followup.edit_message(message_id=interaction.message.id, content=f"✅ Synced states: {archived_count} archived, {kept_count} kept in inbox.", view=None)
+
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel_btn(self, button: discord.ui.Button, interaction: discord.Interaction):
         await interaction.response.edit_message(content="❌ Archive cancelled.", view=None)
@@ -129,9 +149,11 @@ class MailbotCog(discord.Cog):
 
         self.last_inbox_refresh_at: Optional[datetime] = None
         self.process_inbox.start()
+        self.proactive_auto_archive.start()
 
     def cog_unload(self):
         self.process_inbox.cancel()
+        self.proactive_auto_archive.cancel()
 
     def _normalize_category(self, category: str) -> str:
         normalized = (category or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -363,6 +385,57 @@ Emails to classify:
             logger.error(f"Failed to parse LLM response for batch. Response: {response}. Error: {e}")
             return {email['message_id']: {"category": "Important", "reasoning": "Failed to parse LLM response", "draft_needed": False, "draft_text": ""} for email in emails}
 
+    def classify_for_archive(self, emails: list) -> dict:
+        if not emails:
+            return {}
+
+        emails_text = ""
+        for email_data in emails:
+            body_snippet = email_data['body'][:1000] if email_data['body'] else ""
+            emails_text += f"Message ID: {email_data['message_id']}\n"
+            emails_text += f"Subject: {email_data['subject']}\n"
+            emails_text += f"From: {email_data['sender']}\n"
+            emails_text += f"Body: {body_snippet}\n"
+            emails_text += "-" * 20 + "\n"
+        
+        user_context = f"You are acting on behalf of {self.user_name} ({self.user_email})."
+        
+        prompt = f"""You are an AI assistant managing a user's Gmail inbox. {user_context}
+The following emails have already been read by the user but remain in the inbox.
+Decide if they should be proactively archived or if they should be kept in the inbox because a follow-up is expected or they contain important reference information.
+
+Reply EXACTLY with a JSON dictionary mapping the Message ID string to its boolean recommendation:
+{{
+  "message_id_1": true,
+  "message_id_2": false
+}}
+
+Set the value to `true` if it's safe to archive (e.g., newsletters, resolved conversations, marketing).
+Set the value to `false` if it should be kept (e.g., pending tasks, important reference).
+
+Emails to classify:
+{emails_text}
+"""
+        
+        response = self.llm.generate_response(prompt)
+        
+        try:
+            json_str = response
+            match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+            if match:
+                json_str = match.group(1)
+            else:
+                 start = response.find('{')
+                 end = response.rfind('}')
+                 if start != -1 and end != -1:
+                     json_str = response[start:end+1]
+                     
+            result = json.loads(json_str)
+            return {msg_id: bool(val) for msg_id, val in result.items()}
+        except Exception as e:
+            logger.error(f"Failed to parse LLM response for archive batch. Response: {response}. Error: {e}")
+            return {}
+
     @discord.slash_command(name="review-archive", description="Review and batch archive routine emails.")
     async def review_archive(self, ctx: discord.ApplicationContext):
         routine_emails = self.db.get_emails_by_status("routine")
@@ -521,6 +594,57 @@ Emails to classify:
 
     @process_inbox.before_loop
     async def before_process_inbox(self):
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(hours=24)
+    async def proactive_auto_archive(self):
+        if not self.channel_id:
+            return
+            
+        channel = self.bot.get_channel(self.channel_id)
+        if not channel:
+            return
+
+        logger.info("Running proactive auto-archive scan on read emails...")
+        try:
+            # Fetch read emails
+            raw_emails = self.gmail.get_inbox_emails(limit=50, unread_only=False)
+            read_emails = [e for e in raw_emails if 'UNREAD' not in e['label_ids']]
+            
+            # Filter out emails explicitly marked to keep
+            candidates = []
+            for email in read_emails:
+                db_record = self.db.get_email(email['message_id'])
+                if db_record and db_record.get('status') == 'keep':
+                    continue
+                if db_record and db_record.get('status') == 'routine':
+                    # Already tracked as routine, will be caught by /review-archive
+                    continue
+                candidates.append(email)
+
+            if not candidates:
+                logger.info("No new read emails to suggest for archiving.")
+            else:
+                logger.info(f"Classifying {len(candidates)} read emails for archive suggestion...")
+                archive_suggestions = self.classify_for_archive(candidates)
+                
+                for email in candidates:
+                    msg_id = email['message_id']
+                    if archive_suggestions.get(msg_id) is True:
+                        self.db.add_or_update_email(
+                            msg_id, "routine", email['subject'], email['body'], email['sender'], email['recipient'], email['cc']
+                        )
+            
+            # Check high capacity
+            routine_emails = self.db.get_emails_by_status("routine")
+            if len(routine_emails) >= 20:
+                await channel.send(f"⚠️ **Inbox Capacity Warning:** There are {len(routine_emails)} routine emails pending archive. Please run `/review-archive` to clean them up.")
+
+        except Exception as e:
+            logger.exception(f"Error during proactive auto-archive: {e}")
+
+    @proactive_auto_archive.before_loop
+    async def before_proactive_auto_archive(self):
         await self.bot.wait_until_ready()
 
 def create_bot(db: Database, gmail: GmailClient, llm: GeminiClient, channel_id: int) -> discord.Bot:

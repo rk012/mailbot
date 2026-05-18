@@ -206,7 +206,7 @@ Body:
 """
         return self._limit_draft_sentences(self.llm.generate_response(prompt))
 
-    def _is_preexisting_unread_email(self, email: dict) -> bool:
+    def _is_preexisting_email(self, email: dict) -> bool:
         internal_date = email.get('internal_date')
         return bool(internal_date and internal_date < self.started_at)
 
@@ -475,16 +475,33 @@ Emails to classify:
             await ctx.respond("No routine emails to archive right now.")
             return
             
-        summary = "**Routine Emails Pending Archive:**\n"
-        for idx, e in enumerate(routine_emails[:10], 1):
-            summary += f"{idx}. {e['subject']} (from {e['sender']})\n"
-            
-        if len(routine_emails) > 10:
-            summary += f"...and {len(routine_emails) - 10} more.\n"
-            
-        summary += "\nDo you want to archive all of these?"
+        header = f"**Routine Emails Pending Archive ({len(routine_emails)}):**\n"
+        lines = []
+        for idx, e in enumerate(routine_emails, 1):
+            lines.append(f"{idx}. {e['subject']} (from {e['sender']})")
+
+        # Chunk into messages that fit under the Discord limit
+        chunks = []
+        current_chunk = header
+        for line in lines:
+            entry = line + "\n"
+            if len(current_chunk) + len(entry) > DISCORD_MESSAGE_LIMIT - 60:
+                chunks.append(current_chunk.rstrip())
+                current_chunk = entry
+            else:
+                current_chunk += entry
+        current_chunk += "\nDo you want to archive all of these?"
+        chunks.append(current_chunk)
+
         view = ArchiveReviewView(routine_emails, self.db, self.gmail)
-        await ctx.respond(summary, view=view)
+        # Send leading chunks without buttons, attach the view to the last one
+        for i, chunk in enumerate(chunks):
+            if i == len(chunks) - 1:
+                await ctx.respond(chunk, view=view)
+            elif i == 0:
+                await ctx.respond(chunk)
+            else:
+                await ctx.send_followup(chunk)
 
     @discord.slash_command(name="correct-routine", description="Correct a routine email from a sync summary.")
     async def correct_routine(
@@ -511,7 +528,33 @@ Emails to classify:
             logger.error(f"Manual sync failed: {e}")
             await ctx.followup.send(f"❌ Sync failed: {e}", ephemeral=True)
 
+    @discord.slash_command(name="inbox-status", description="Show all tracked emails and their current state.")
+    async def inbox_status(self, ctx: discord.ApplicationContext):
+        await ctx.defer(ephemeral=True)
+        with self.db._get_connection() as conn:
+            conn.row_factory = __import__('sqlite3').Row
+            rows = conn.execute('SELECT message_id, subject, status FROM emails ORDER BY added_at DESC').fetchall()
 
+        if not rows:
+            await ctx.followup.send("No emails currently tracked.", ephemeral=True)
+            return
+
+        header = f"**Tracked Emails ({len(rows)}):**\n"
+        chunks = []
+        current = header
+        for r in rows:
+            subj = self._truncate_text(r['subject'] or "(No subject)", 50)
+            line = f"`{r['status']:10s}` {subj}\n"
+            if len(current) + len(line) > DISCORD_MESSAGE_LIMIT - 20:
+                chunks.append(current.rstrip())
+                current = line
+            else:
+                current += line
+        if current.strip():
+            chunks.append(current.rstrip())
+
+        for chunk in chunks:
+            await ctx.followup.send(chunk, ephemeral=True)
 
     @tasks.loop(seconds=INBOX_REFRESH_CHECK_INTERVAL_SECONDS)
     async def process_inbox(self):
@@ -535,32 +578,43 @@ Emails to classify:
             logger.warning(f"Could not find channel with ID {self.channel_id}.")
             return
 
-        logger.info("Polling Gmail inbox for new unread messages...")
+        logger.info("Polling Gmail inbox for new messages...")
         try:
-            raw_emails = self.gmail.get_inbox_emails(limit=20, unread_only=True)
+            # Fetch unread emails first, then all inbox emails to catch already-read ones
+            unread_emails = self.gmail.get_inbox_emails(limit=20, unread_only=True)
+            all_inbox_emails = self.gmail.get_inbox_emails(limit=20, unread_only=False)
+
+            # Merge and deduplicate (unread first to preserve ordering priority)
+            seen_ids = set()
+            raw_emails = []
+            for email in unread_emails + all_inbox_emails:
+                if email['message_id'] not in seen_ids:
+                    seen_ids.add(email['message_id'])
+                    raw_emails.append(email)
+
             if not raw_emails:
-                logger.info("No new unread emails.")
+                logger.info("No emails in inbox.")
                 return
                 
             untracked_emails = [e for e in raw_emails if not self.db.get_email(e['message_id'])]
             
             if not untracked_emails:
-                logger.info("No *unprocessed* new unread emails.")
+                logger.info("No *unprocessed* new emails.")
                 return
 
             routine_batch = []
             existing_unread_emails = [
                 email for email in untracked_emails
-                if self._is_preexisting_unread_email(email)
+                if self._is_preexisting_email(email)
             ]
             emails = [
                 email for email in untracked_emails
-                if not self._is_preexisting_unread_email(email)
+                if not self._is_preexisting_email(email)
             ]
 
             if existing_unread_emails:
                 logger.info(
-                    f"Defaulting {len(existing_unread_emails)} pre-existing unread inbox emails to Routine."
+                    f"Defaulting {len(existing_unread_emails)} pre-existing inbox emails to Routine."
                 )
                 for email in existing_unread_emails:
                     self._record_routine_email(email)

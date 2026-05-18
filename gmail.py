@@ -227,6 +227,39 @@ class GmailClient:
 
         self.service.users().drafts().create(userId='me', body=create_message).execute()
 
+    @retry_on_error()
+    def delete_drafts_for_message(self, message_id: str) -> int:
+        """Deletes all drafts associated with the same thread as the given message.
+        Returns the number of drafts deleted."""
+        # Get the thread ID for this message
+        try:
+            msg = self.service.users().messages().get(userId='me', id=message_id, format='minimal').execute()
+        except HttpError:
+            return 0
+        thread_id = msg.get('threadId')
+        if not thread_id:
+            return 0
+
+        # List all drafts and find ones matching the thread
+        deleted = 0
+        page_token = None
+        while True:
+            kwargs = {'userId': 'me', 'maxResults': 100}
+            if page_token:
+                kwargs['pageToken'] = page_token
+            result = self.service.users().drafts().list(**kwargs).execute()
+            drafts = result.get('drafts', [])
+            for draft in drafts:
+                draft_detail = self.service.users().drafts().get(userId='me', id=draft['id'], format='minimal').execute()
+                draft_thread = draft_detail.get('message', {}).get('threadId')
+                if draft_thread == thread_id:
+                    self.service.users().drafts().delete(userId='me', id=draft['id']).execute()
+                    deleted += 1
+            page_token = result.get('nextPageToken')
+            if not page_token:
+                break
+        return deleted
+
 
 if __name__ == "__main__":
     # Small block to manually test authentication and fetching

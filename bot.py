@@ -17,7 +17,7 @@ logger = logging.getLogger("MailBot")
 INBOX_REFRESH_INTERVAL = timedelta(minutes=30)
 INBOX_REFRESH_CHECK_INTERVAL_SECONDS = 60
 MAX_DRAFT_SENTENCES = 2
-CORRECTABLE_ROUTINE_CATEGORIES = ["Important", "Quick_Reply"]
+CORRECTABLE_ROUTINE_CATEGORIES = ["Important", "Urgent", "Quick_Reply"]
 DISCORD_MESSAGE_LIMIT = 2000
 
 # --- Discord UI Views ---
@@ -45,10 +45,19 @@ class CorrectionView(discord.ui.View):
         
         # Apply Gmail actions based on the *new* state
         try:
+            # Delete any existing draft when correcting away from Quick_Reply
+            if self.predicted == "Quick_Reply" and corrected != "Quick_Reply":
+                try:
+                    deleted = self.gmail.delete_drafts_for_message(self.message_id)
+                    if deleted:
+                        logger.info(f"Deleted {deleted} draft(s) for message {self.message_id} (corrected from Quick_Reply to {corrected}).")
+                except Exception as e:
+                    logger.error(f"Failed to delete drafts for {self.message_id}: {e}")
+
             if corrected == "Routine":
                 self.gmail.modify_email_state(self.message_id, "read")
                 self.db.add_or_update_email(self.message_id, "routine", self.subject)
-            elif corrected in ["Important", "Quick_Reply"]:
+            elif corrected in ["Important", "Urgent", "Quick_Reply"]:
                 self.db.update_email_status(self.message_id, corrected.lower())
                 self.gmail.modify_email_state(self.message_id, "unread")
                 
@@ -68,6 +77,10 @@ class CorrectionView(discord.ui.View):
     @discord.ui.button(label="Mark Important", style=discord.ButtonStyle.danger, custom_id="mark_important")
     async def btn_important(self, button: discord.ui.Button, interaction: discord.Interaction):
         await self.handle_correction(interaction, "Important")
+
+    @discord.ui.button(label="Mark Urgent", style=discord.ButtonStyle.danger, custom_id="mark_urgent")
+    async def btn_urgent(self, button: discord.ui.Button, interaction: discord.Interaction):
+        await self.handle_correction(interaction, "Urgent")
 
     @discord.ui.button(label="Correct (Dismiss)", style=discord.ButtonStyle.success, custom_id="correct_dismiss")
     async def btn_dismiss(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -162,6 +175,7 @@ class MailbotCog(discord.Cog):
             "quickreply": "Quick_Reply",
             "quick_reply": "Quick_Reply",
             "important": "Important",
+            "urgent": "Urgent",
         }
         return category_map.get(normalized, "Important")
 
@@ -268,6 +282,16 @@ Body:
         if email.get('status') != "routine":
             raise ValueError(f"That email is currently tracked as `{email.get('status')}`, not `routine`.")
 
+        # Delete any existing draft if the original was Quick_Reply
+        prev_status = email.get('status', '')
+        if prev_status == 'quick_reply' and corrected != "Quick_Reply":
+            try:
+                deleted = self.gmail.delete_drafts_for_message(message_id)
+                if deleted:
+                    logger.info(f"Deleted {deleted} draft(s) for {message_id} during /correct-routine.")
+            except Exception as e:
+                logger.error(f"Failed to delete drafts for {message_id}: {e}")
+
         snippet = self._truncate_text(email.get('body', ''), 200)
         self.db.add_correction(
             message_id,
@@ -339,15 +363,16 @@ Body:
             logger.error(f"Failed to read rules.txt: {e}")
         
         prompt = f"""You are an AI assistant that triages a user's Gmail inbox. {user_context}
-Classify the following emails into one of three categories:
+Classify the following emails into one of four categories:
 1. Routine: Newsletters, automated alerts, marketing, generic updates where no reply is expected. Also use this for emails sent to mailing lists or where the user is merely CC'd and no direct action is needed from them.
 2. Quick_Reply: ANY email (including those from recruiters, professors, or important contacts) where a reply is STRICTLY REQUIRED or expected, and it can be fully answered with a brief (< 3 sentences) reply. DO NOT use this for cold outreaches, automated advertising, or PR pitches.
-3. Important: Recruiters, professors, interviews, personal matters, or urgent tasks that require a longer, thoughtful response, or action outside of a quick email reply.
+3. Important: Recruiters, professors, interviews, personal matters, or tasks that require a longer, thoughtful response, or action outside of a quick email reply.
+4. Urgent: Time-sensitive, high-priority matters that require IMMEDIATE attention. Examples: deadline today, interview scheduling within 24 hours, urgent requests from a manager or advisor, account security alerts, or anything the user would want to know about RIGHT NOW. Use sparingly—most emails are Important, not Urgent.
 
 Reply EXACTLY with a JSON dictionary mapping the Message ID string to its classification object:
 {{
   "message_id_1": {{
-    "category": "Routine" | "Quick_Reply" | "Important",
+    "category": "Routine" | "Quick_Reply" | "Important" | "Urgent",
     "reasoning": "brief explanation",
     "draft_needed": true/false,
     "draft_text": "draft text or empty"
@@ -356,7 +381,7 @@ Reply EXACTLY with a JSON dictionary mapping the Message ID string to its classi
 }}
 
 Rules:
-- If you provide a draft, the category MUST be "Quick_Reply". Never provide a draft for "Important" or "Routine".
+- If you provide a draft, the category MUST be "Quick_Reply". Never provide a draft for "Important", "Urgent", or "Routine".
 - draft_needed should ONLY be true if the category is Quick_Reply.
 - draft_text MUST be strictly under 3 sentences.{custom_rules}
 
@@ -588,6 +613,14 @@ Emails to classify:
                         
                     await channel.send(notification, view=view)
                     
+                elif category == "Urgent":
+                    self.db.add_or_update_email(msg_id, "urgent", email['subject'], email['body'], email['sender'], email['recipient'], email['cc'])
+                    
+                    ping_user_id = os.environ.get("DISCORD_PING_USER_ID", "")
+                    ping_str = f"<@{ping_user_id}> " if ping_user_id else ""
+                    notification = f"{ping_str}**🚨 Important Email:** `{email['subject']}`\n**From:** {email['sender']}\n**Reason:** {reasoning}\n[View Email](<https://mail.google.com/mail/u/0/#inbox/{msg_id}>)"
+                    await channel.send(notification, view=view)
+
                 else: # Important or fallback
                     self.db.add_or_update_email(msg_id, "important", email['subject'], email['body'], email['sender'], email['recipient'], email['cc'])
                     

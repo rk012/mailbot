@@ -13,7 +13,8 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * **Classification Categories:**
 * `Routine`: (Canvas updates, newsletters, marketing) Marked as read immediately, queued for daily batch archive.
 * `Quick_Reply`: (Brief inquiries) Creates a Gmail draft (< 3 sentences) and pings Discord with a link to the draft.
-* `Important`: (Recruiters, Professors, Interviews) Leaves unread and sends a priority notification to Discord.
+* `Important`: (Recruiters, Professors, Interviews) Leaves unread and sends a normal Discord notification.
+* `Urgent`: (Time-sensitive, high-priority) Leaves unread, sends a Discord notification, AND pings a specific Discord user ID.
 * **Adaptive Learning:** Implements a dynamic few-shot "teaching loop." User corrections in Discord are stored in SQLite and injected into the LLM system prompt for future classifications.
 * **User Experience:**
 * `/review-archive` command to batch-archive the `Routine` queue.
@@ -89,7 +90,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * `GMAIL_CREDENTIALS_PATH` for Gmail OAuth client credentials.
 * `GMAIL_TOKEN_PATH` for the persisted Gmail OAuth token.
 * `RULES_PATH` for optional semantic triage rules (`/app/config/rules.txt` in Docker).
-* Verified `docker compose build` succeeds and `docker compose up -d` starts the `mailbot` service.
+* `DISCORD_PING_USER_ID` for the Discord user to ping on Urgent emails.
 * Inbox refresh now uses a timestamp-based scheduler that wakes frequently and triggers when the 30-minute wall-clock interval has elapsed, so laptop sleep time counts toward the interval.
 
 ### 6. Proactive Auto-Archive & Inbox Management [Complete]
@@ -109,7 +110,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Integrate a local vector database.
 * When classifying emails, retrieve the top 10 most semantically relevant user corrections to inject into the LLM prompt for highly targeted context.
 
-### 9. Inbox Synchronization & Summaries [In progress]
+### 9. Inbox Synchronization & Summaries [Complete]
 
 * Process unread emails that are already in the inbox (but not in the database) and default them to `Routine`.
 * After every sync, send a single consolidated summary message to Discord containing a 1-line overview (Subject + truncated body) for all `Routine` emails processed in that batch.
@@ -118,11 +119,12 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Routine summary delivery is logged and chunked under Discord's message length limit.
 * When a quick reply is corrected to something else, delete the draft.
 
-### 10. Two-Tiered "Important" Categories
+### 10. Two-Tiered "Important" Categories [Complete]
 
 * Implement two levels of importance: `Important` and `Urgent`.
 * `Important`: Keeps email unread and sends a normal Discord notification.
 * `Urgent`: Keeps email unread, sends a Discord notification, AND explicitly pings a specific Discord user ID.
+* `DISCORD_PING_USER_ID` env var configures which user gets pinged for Urgent emails.
 
 ## Guardrails & Constraints
 

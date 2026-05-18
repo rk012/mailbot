@@ -76,7 +76,7 @@ class GeminiClient(LLMClient):
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = self.client.models.embed_content(
-                    model="text-embedding-004",
+                    model="gemini-embedding-2",
                     contents=texts
                 )
                 # Google-genai response structure for embed_content has an embeddings property

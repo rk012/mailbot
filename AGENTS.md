@@ -104,7 +104,7 @@ The goal is "Inbox Zero" via semantic understanding rather than hardcoded rules.
 * Add options for "Archive All" or "Save Choices" to the `/review-archive` Discord UI.
 * For "Save Choices", read the current states directly from Gmail to sync the user's manual archive/keep actions back into the database preferences.
 
-### 8. Vector DB for Few-Shot Learning
+### 8. Vector DB for Few-Shot Learning [Complete]
 
 * Integrate a local vector database.
 * When classifying emails, retrieve the top 10 most semantically relevant user corrections to inject into the LLM prompt for highly targeted context.

@@ -296,18 +296,8 @@ Body:
         if not emails:
             return {}
 
-        recent_corrections = self.db.get_recent_corrections(limit=5)
-        corrections_text = ""
-        for c in recent_corrections:
-            cc_str = f" | CC: {c['cc']}" if c.get('cc') else ""
-            corrections_text += f"- From: {c.get('sender', 'Unknown')} | To: {c.get('recipient', 'Unknown')}{cc_str}\n"
-            corrections_text += f"  Subject: '{c['email_subject']}' | Body Snippet: '{c.get('email_snippet', '')}'\n"
-            corrections_text += f"  Model Predicted: '{c['predicted_category']}' -> User Corrected To: '{c['corrected_category']}'\n\n"
-        
-        if not corrections_text:
-            corrections_text = "No past corrections yet.\n"
-
         emails_text = ""
+        query_text = ""
         for email_data in emails:
             body_snippet = email_data['body'][:1000] if email_data['body'] else ""
             cc_str = f" | CC: {email_data.get('cc')}" if email_data.get('cc') else ""
@@ -317,6 +307,23 @@ Body:
             emails_text += f"To: {email_data.get('recipient', 'Unknown')}{cc_str}\n"
             emails_text += f"Body: {body_snippet}\n"
             emails_text += "-" * 20 + "\n"
+            
+            # Short snippet for vector search query
+            query_snippet = email_data['body'][:100] if email_data['body'] else ""
+            query_text += f"Subject: {email_data['subject']} Snippet: {query_snippet} "
+
+        # Get top 10 semantically relevant corrections
+        recent_corrections = self.db.get_semantically_relevant_corrections(query_text=query_text, limit=10)
+        
+        corrections_text = ""
+        for c in recent_corrections:
+            cc_str = f" | CC: {c['cc']}" if c.get('cc') else ""
+            corrections_text += f"- From: {c.get('sender', 'Unknown')} | To: {c.get('recipient', 'Unknown')}{cc_str}\n"
+            corrections_text += f"  Subject: '{c['email_subject']}' | Body Snippet: '{c.get('email_snippet', '')}'\n"
+            corrections_text += f"  Model Predicted: '{c['predicted_category']}' -> User Corrected To: '{c['corrected_category']}'\n\n"
+        
+        if not corrections_text:
+            corrections_text = "No past corrections yet.\n"
         
         user_context = f"You are acting on behalf of {self.user_name} ({self.user_email})."
         

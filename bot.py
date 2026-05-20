@@ -468,13 +468,13 @@ Emails to classify:
             logger.error(f"Failed to parse LLM response for archive batch. Response: {response}. Error: {e}")
             return {}
 
-    @discord.slash_command(name="review-archive", description="Review and batch archive routine emails.")
-    async def review_archive(self, ctx: discord.ApplicationContext):
+    async def _send_review_archive(self, channel):
+        """Build and send the review-archive confirmation dialog to a channel.
+        Returns True if the dialog was sent, False if there was nothing to review."""
         routine_emails = self.db.get_emails_by_status("routine")
         if not routine_emails:
-            await ctx.respond("No routine emails to archive right now.")
-            return
-            
+            return False
+
         header = f"**Routine Emails Pending Archive ({len(routine_emails)}):**\n"
         lines = []
         for idx, e in enumerate(routine_emails, 1):
@@ -496,12 +496,19 @@ Emails to classify:
         view = ArchiveReviewView(routine_emails, self.db, self.gmail)
         # Send leading chunks without buttons, attach the view to the last one
         for i, chunk in enumerate(chunks):
-            if i == len(chunks) - 1:
-                await ctx.respond(chunk, view=view)
-            elif i == 0:
-                await ctx.respond(chunk)
+            if i < len(chunks) - 1:
+                await channel.send(chunk)
             else:
-                await ctx.send_followup(chunk)
+                await channel.send(chunk, view=view)
+        return True
+
+    @discord.slash_command(name="review-archive", description="Review and batch archive routine emails.")
+    async def review_archive(self, ctx: discord.ApplicationContext):
+        sent = await self._send_review_archive(ctx.channel)
+        if not sent:
+            await ctx.respond("No routine emails to archive right now.")
+        else:
+            await ctx.respond("👆 Review posted above.", ephemeral=True, delete_after=3)
 
     @discord.slash_command(name="correct-routine", description="Correct a routine email from a sync summary.")
     async def correct_routine(
@@ -729,10 +736,8 @@ Emails to classify:
                             msg_id, "routine", email['subject'], email['body'], email['sender'], email['recipient'], email['cc']
                         )
             
-            # Check high capacity
-            routine_emails = self.db.get_emails_by_status("routine")
-            if len(routine_emails) >= 20:
-                await channel.send(f"⚠️ **Inbox Capacity Warning:** There are {len(routine_emails)} routine emails pending archive. Please run `/review-archive` to clean them up.")
+            # Send review-archive confirmation dialog
+            await self._send_review_archive(channel)
 
         except Exception as e:
             logger.exception(f"Error during proactive auto-archive: {e}")

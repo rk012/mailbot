@@ -139,6 +139,13 @@ class Database:
             cursor.execute('DELETE FROM emails WHERE message_id = ?', (message_id,))
             conn.commit()
 
+    def get_all_email_ids(self) -> set:
+        """Returns the set of all tracked message IDs."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT message_id FROM emails')
+            return {row[0] for row in cursor.fetchall()}
+
     def add_correction(self, message_id: str, subject: str, snippet: str, sender: str, recipient: str, cc: str, predicted: str, corrected: str):
         """Logs a manual user correction. Uses ON CONFLICT to retain only the latest correction per email."""
         with self._get_connection() as conn:

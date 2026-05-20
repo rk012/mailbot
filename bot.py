@@ -585,25 +585,26 @@ Emails to classify:
             logger.warning(f"Could not find channel with ID {self.channel_id}.")
             return
 
-        logger.info("Polling Gmail inbox for new messages...")
+        logger.info("Polling Gmail inbox...")
         try:
-            # Fetch unread emails first, then all inbox emails to catch already-read ones
-            unread_emails = self.gmail.get_inbox_emails(limit=20, unread_only=True)
-            all_inbox_emails = self.gmail.get_inbox_emails(limit=20, unread_only=False)
+            # Fetch the entire inbox (read + unread)
+            raw_emails = self.gmail.get_inbox_emails(limit=50, unread_only=False)
 
-            # Merge and deduplicate (unread first to preserve ordering priority)
-            seen_ids = set()
-            raw_emails = []
-            for email in unread_emails + all_inbox_emails:
-                if email['message_id'] not in seen_ids:
-                    seen_ids.add(email['message_id'])
-                    raw_emails.append(email)
+            # Prune DB entries for emails no longer in the inbox
+            # (e.g. moved to Promotions, deleted, or manually archived)
+            inbox_ids = {e['message_id'] for e in raw_emails}
+            tracked_ids = self.db.get_all_email_ids()
+            stale_ids = tracked_ids - inbox_ids
+            if stale_ids:
+                logger.info(f"Removing {len(stale_ids)} stale email(s) from DB (no longer in inbox).")
+                for stale_id in stale_ids:
+                    self.db.remove_email(stale_id)
 
             if not raw_emails:
-                logger.info("No emails in inbox.")
+                logger.info("Inbox is empty.")
                 return
                 
-            untracked_emails = [e for e in raw_emails if not self.db.get_email(e['message_id'])]
+            untracked_emails = [e for e in raw_emails if e['message_id'] not in tracked_ids]
             
             if not untracked_emails:
                 logger.info("No *unprocessed* new emails.")
